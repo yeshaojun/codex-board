@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { captureRecord, generateNarrative, scanProject, scanProjects } from "../src/lib.mjs";
+import { captureRecord, generateNarrative, scanProject, scanProjects, updateIssueRecord } from "../src/lib.mjs";
 import { addRegistryProject, removeRegistryProject } from "../src/registry.mjs";
 import { validateLoopbackWebSocketUrl } from "../scripts/codex-cdp.mjs";
 import { ensureLocalBoardUrl, parseArgs } from "../scripts/codex-sidecar.mjs";
@@ -24,6 +24,10 @@ issue_kind: feature
 slice_type: AFK
 risk: high
 status: in_progress
+created_by: "产品创建者"
+assignee: "开发负责人"
+reviewers:
+  - "测试同学"
 ---
 
 # 安全导出
@@ -81,6 +85,12 @@ test("scans Loctek, OpenSpec and Git evidence into related cards", async (contex
   assert.equal(issue.type, "issue");
   assert.deepEqual(issue.progress, { total: 2, completed: 1, partial: 0, ratio: 0.5 });
   assert.equal(issue.authorship.createdBy.name, "Specboard Tester");
+  assert.deepEqual(issue.collaboration, {
+    createdBy: "产品创建者",
+    assignee: "开发负责人",
+    reviewers: ["测试同学"],
+    activities: [],
+  });
   assert.equal(issue.evidenceIds.length, 1);
   assert.equal(scan.evidence.find((item) => item.id === issue.evidenceIds[0]).type, "work-report");
   assert.deepEqual(issue.detail.todo.map((item) => item.text), ["已授权用户可以下载"]);
@@ -89,6 +99,112 @@ test("scans Loctek, OpenSpec and Git evidence into related cards", async (contex
   assert.equal(issue.detail.recommendations[0], "优先推进下一项验收：已授权用户可以下载");
   assert.equal(change.type, "openspec-change");
   assert.equal(change.progress.ratio, 0.5);
+});
+
+test("falls back to the Git creator as the assignee for legacy issues", async (context) => {
+  const project = await fixtureProject();
+  context.after(() => rm(project, { recursive: true, force: true }));
+  await write(project, ".changes/issues/issue-002-legacy.md", `---
+type: issue
+id: ISSUE-002
+status: draft
+---
+
+# 旧任务
+
+## 验收标准
+
+- [ ] 补齐任务协议
+`);
+  await execFile("git", ["add", ".changes/issues/issue-002-legacy.md"], { cwd: project });
+  await execFile("git", ["commit", "-m", "add legacy issue"], { cwd: project });
+  const issue = (await scanProject(project)).cards.find((card) => card.id === "ISSUE-002");
+
+  assert.equal(issue.collaboration.createdBy, "Specboard Tester");
+  assert.equal(issue.collaboration.assignee, "Specboard Tester");
+  assert.equal(issue.detail.lifecycle.skill, "loctek-issue");
+});
+
+test("writes assignee status and comments back to exactly one active issue", async (context) => {
+  const project = await fixtureProject();
+  context.after(() => rm(project, { recursive: true, force: true }));
+  const update = await updateIssueRecord(project, "ISSUE-001", {
+    assignee: "Alice",
+    status: "blocked",
+    comment: "需要先确认权限边界。",
+  });
+  const source = await readFile(path.join(project, ".changes/issues/issue-001-demo.md"), "utf8");
+  const issue = (await scanProject(project)).cards.find((card) => card.id === "ISSUE-001");
+
+  assert.equal(update.changed, true);
+  assert.match(source, /assignee: Alice/);
+  assert.match(source, /status: blocked/);
+  assert.match(source, /协作动态/);
+  assert.match(source, /负责人：开发负责人 → Alice/);
+  assert.match(source, /需要先确认权限边界/);
+  assert.equal(issue.collaboration.assignee, "Alice");
+  assert.equal(issue.status, "blocked");
+  assert.equal(issue.collaboration.activities.length, 3);
+  assert.equal(issue.collaboration.activities[2].kind, "评论");
+  assert.equal(issue.detail.lifecycle.skill, "loctek-work");
+  await assert.rejects(() => updateIssueRecord(project, "ISSUE-404", { comment: "不存在" }), /未找到可编辑/);
+  await assert.rejects(() => updateIssueRecord(project, "ISSUE-001", { status: "shipping" }), /允许的范围/);
+});
+
+test("backfills legacy ownership on a no-op collaboration save", async (context) => {
+  const project = await fixtureProject();
+  context.after(() => rm(project, { recursive: true, force: true }));
+  await write(project, ".changes/issues/issue-009-legacy.md", `---
+type: issue
+id: ISSUE-009
+status: draft
+---
+
+# 旧任务
+`);
+  const update = await updateIssueRecord(project, "ISSUE-009", { status: "draft" });
+  const source = await readFile(path.join(project, ".changes/issues/issue-009-legacy.md"), "utf8");
+
+  assert.equal(update.changed, true);
+  assert.match(source, /created_by: "Specboard Tester"/);
+  assert.match(source, /assignee: "Specboard Tester"/);
+  assert.doesNotMatch(source, /协作动态/);
+});
+
+test("preserves an Issue byte-for-byte when an unchanged legacy field is saved", async (context) => {
+  const project = await fixtureProject();
+  context.after(() => rm(project, { recursive: true, force: true }));
+  const issuePath = path.join(project, ".changes/issues/issue-001-demo.md");
+  const before = await readFile(issuePath, "utf8");
+  const update = await updateIssueRecord(project, "ISSUE-001", { assignee: "开发负责人", status: "in_progress" });
+
+  assert.equal(update.changed, false);
+  assert.equal(await readFile(issuePath, "utf8"), before);
+});
+
+test("recommends test then archive from actual status and evidence", async (context) => {
+  const project = await fixtureProject();
+  context.after(() => rm(project, { recursive: true, force: true }));
+  await updateIssueRecord(project, "ISSUE-001", { status: "completed" });
+  let issue = (await scanProject(project)).cards.find((card) => card.id === "ISSUE-001");
+  assert.equal(issue.detail.lifecycle.skill, "loctek-test");
+
+  await write(project, ".changes/test-reports/issue-001-2026-08-17.md", `---
+type: test-report
+issue: ISSUE-001
+status: completed
+---
+
+# 测试报告
+
+已验证导出权限。
+`);
+  await updateIssueRecord(project, "ISSUE-001", { comment: "准备归档。" });
+  const issuePath = path.join(project, ".changes/issues/issue-001-demo.md");
+  const source = await readFile(issuePath, "utf8");
+  await write(project, ".changes/issues/issue-001-demo.md", source.replace("- [ ] 已授权用户可以下载", "- [x] 已授权用户可以下载"));
+  issue = (await scanProject(project)).cards.find((card) => card.id === "ISSUE-001");
+  assert.equal(issue.detail.lifecycle.skill, "loctek-archive");
 });
 
 test("captures a compact discussion that immediately joins the board", async (context) => {

@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { generateNarrative, scanProjects } from "./lib.mjs";
+import { generateNarrative, scanProjects, updateIssueRecord } from "./lib.mjs";
 import { addRegistryProject, readProjectRegistry, removeRegistryProject, writeProjectRegistry } from "./registry.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -42,6 +42,7 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/health") return json(response, { ok: true, registryPath, projects: (await registry()).projects.length, generatedAt: cached?.generatedAt || null });
     if (request.method === "POST" && url.pathname === "/api/projects") return addProject(request, response);
     if (request.method === "DELETE" && url.pathname.startsWith("/api/projects/")) return deleteProject(response, decodeURIComponent(url.pathname.slice("/api/projects/".length)));
+    if (request.method === "PATCH" && url.pathname.startsWith("/api/projects/")) return updateIssue(request, response, url.pathname);
     if (url.pathname === "/" || url.pathname === "/index.html") return asset(response, "index.html", "text/html; charset=utf-8");
     if (url.pathname === "/app.js") return asset(response, "app.js", "application/javascript; charset=utf-8");
     if (url.pathname === "/style.css") return asset(response, "style.css", "text/css; charset=utf-8");
@@ -71,6 +72,20 @@ async function deleteProject(response, id) {
   const updated = await writeProjectRegistry(registryPath, removeRegistryProject(await registry(), id));
   cached = null;
   json(response, updated);
+}
+
+async function updateIssue(request, response, pathname) {
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/issues\/([^/]+)$/);
+  if (!match) throw new Error("Issue 更新地址无效。");
+  const [, encodedProjectId, encodedIssueId] = match;
+  const projectId = decodeURIComponent(encodedProjectId);
+  const issueId = decodeURIComponent(encodedIssueId);
+  const target = (await registry()).projects.find((project) => project.id === projectId);
+  if (!target) throw new Error("项目未登记，不能写入。请先通过 Specboard 登记项目。");
+  const update = await updateIssueRecord(target.path, issueId, await requestBody(request));
+  cached = null;
+  const portfolio = await scan();
+  json(response, { update, portfolio });
 }
 
 function parseArgs(values) {
@@ -103,7 +118,7 @@ function text(response, value, contentType, status = 200) {
     // This still exposes only loopback data, but lets the embedded board fetch
     // its own local JSON and static assets instead of failing CORS.
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type",
   });
   response.end(value);

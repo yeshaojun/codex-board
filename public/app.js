@@ -1,6 +1,6 @@
 (() => {
-window.__loctekSpecboardUiVersion = "taskboard-reference-ui-v3";
-const app = { portfolio: null, projectId: "all", tab: "dashboard", filters: { status: "all", risk: "all", query: "" }, collapsedGroups: new Set() };
+window.__loctekSpecboardUiVersion = "collaboration-protocol-v5";
+const app = { portfolio: null, projectId: "all", tab: "dashboard", filters: { status: "all", risk: "all", query: "" }, collapsedGroups: new Set(), detailKey: null, detailSaving: false };
 window.__loctekSpecboardDebugState = () => ({ projectId: app.projectId, tab: app.tab, portfolio: app.portfolio });
 // The standalone page starts itself. The Codex sidecar deliberately opts into
 // managed loading, so it can wait until all registered projects are scanned
@@ -26,6 +26,8 @@ const typeLabel = (value) => TYPES[value] || value;
 const statusLabel = (value) => STATUSES[value] || value;
 const riskLabel = (value) => RISKS[value] || value;
 const recent = (card) => card.authorship.updatedBy?.at || card.authorship.createdBy?.at || "";
+const assignee = (card) => card.collaboration?.assignee || card.collaboration?.createdBy || card.authorship.createdBy?.name || "未分配";
+const creator = (card) => card.collaboration?.createdBy || card.authorship.createdBy?.name || "未识别";
 const score = (card) => card.status === "blocked" ? 0 : card.risk === "critical" ? 1 : card.risk === "high" ? 2 : card.status === "in_progress" ? 3 : card.status === "active" ? 4 : 9;
 const sortIssues = (left, right) => score(left) - score(right) || recent(right).localeCompare(recent(left)) || left.title.localeCompare(right.title, "zh-CN");
 
@@ -47,6 +49,11 @@ function progress(value) {
 function brief(value, limit = 150) {
   const compact = String(value || "").replace(/\s+/g, " ").trim();
   return compact.length > limit ? `${compact.slice(0, limit)}…` : compact;
+}
+
+function storyUrl() {
+  const query = app.projectId === "all" ? "" : `?project=${encodeURIComponent(app.projectId)}`;
+  return api(`/api/narrative${query}`);
 }
 
 function scans() {
@@ -73,23 +80,43 @@ function selectedSummary() {
   }), { cards: 0, evidence: 0, activeIssues: 0, blockedIssues: 0, archiveGaps: 0 });
 }
 
-async function load() {
+async function load({ force = false } = {}) {
+  const refresh = $("#refresh");
+  const refreshLabel = refresh?.querySelector("span");
+  if (refresh) {
+    refresh.disabled = true;
+    refresh.dataset.loading = "true";
+    refresh.setAttribute("aria-busy", "true");
+    if (refreshLabel) refreshLabel.textContent = "刷新中";
+  }
   const bootstrap = window.__LOCTEK_SPECBOARD_BOOTSTRAP__;
-  if (bootstrap) {
+  try {
+    if (bootstrap && !force) {
     // The Codex sidecar preloads the portfolio because its about:blank iframe
     // has an opaque origin. Consume this one-time loopback snapshot before
     // falling back to the normal standalone-page request path.
     delete window.__LOCTEK_SPECBOARD_BOOTSTRAP__;
-    app.portfolio = bootstrap;
-  } else {
-    const response = await fetch(api("/api/scan"));
-    app.portfolio = await response.json();
+      delete window.__LOCTEK_SPECBOARD_BOOTSTRAP__;
+      app.portfolio = bootstrap;
+    } else {
+      const response = await fetch(api("/api/scan"), { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "扫描项目源文件失败。");
+      app.portfolio = result;
+    }
+    if (app.portfolio.error) throw new Error(app.portfolio.error);
+    const selectedProject = app.portfolio.projects.find((project) => project.id === app.projectId);
+    if (app.projectId !== "all" && (!selectedProject || selectedProject.error)) app.projectId = "all";
+    renderFilters();
+    render();
+  } finally {
+    if (refresh) {
+      refresh.disabled = false;
+      delete refresh.dataset.loading;
+      refresh.removeAttribute("aria-busy");
+      if (refreshLabel) refreshLabel.textContent = "刷新";
+    }
   }
-  if (app.portfolio.error) throw new Error(app.portfolio.error);
-  const selectedProject = app.portfolio.projects.find((project) => project.id === app.projectId);
-  if (app.projectId !== "all" && (!selectedProject || selectedProject.error)) app.projectId = "all";
-  renderFilters();
-  render();
 }
 
 function renderFilters() {
@@ -102,7 +129,7 @@ function renderFilters() {
 
 function filteredCards(types = null) {
   return cards().filter((card) => {
-    const query = `${card.id} ${card.title} ${card.excerpt} ${card.links.join(" ")} ${card.project.label}`.toLowerCase();
+    const query = `${card.id} ${card.title} ${card.excerpt} ${card.links.join(" ")} ${card.project.label} ${creator(card)} ${assignee(card)}`.toLowerCase();
     return (!types || types.has(card.type))
       && (app.filters.status === "all" || card.status === app.filters.status)
       && (app.filters.risk === "all" || card.risk === app.filters.risk)
@@ -222,8 +249,7 @@ function boardColumn(group, groupedCards) {
 }
 
 function boardCard(card) {
-  const createdBy = card.authorship.createdBy?.name || "未识别";
-  return `<button class="board-card" data-card-key="${escape(cardKey(card))}"><code>${escape(card.id)}</code><strong>${escape(card.title)}</strong><p>${escape(card.excerpt || "尚未提取到任务摘要。")}</p><footer><span class="mini-tag ${escape(card.risk || "none")}">${escape(card.risk ? riskLabel(card.risk) : "一般")}</span><span>${escape(createdBy)}</span><time>${date(card.authorship.createdBy?.at)}</time></footer></button>`;
+  return `<button class="board-card" data-card-key="${escape(cardKey(card))}"><code>${escape(card.id)}</code><strong>${escape(card.title)}</strong><p>${escape(card.excerpt || "尚未提取到任务摘要。")}</p><footer><span class="mini-tag ${escape(card.risk || "none")}">${escape(card.risk ? riskLabel(card.risk) : "一般")}</span><span class="owner-chip">负责人 · ${escape(assignee(card))}</span><time>${date(card.authorship.createdBy?.at)}</time></footer></button>`;
 }
 
 function list() {
@@ -241,7 +267,7 @@ function issueListRow(card) {
   const checks = card.detail?.archiveChecks || [];
   const blocking = checks.some((check) => check.level === "blocking");
   const archive = blocking ? "存在阻塞" : checks.length ? "待补证" : "可执行 dry-run";
-  return `<article class="issue-list-row"><button class="issue-main" data-card-key="${escape(cardKey(card))}"><code>${escape(card.project.label)} / ${escape(card.id)}</code><strong>${escape(card.title)}</strong><small>${escape(card.excerpt)}</small></button><div class="issue-row-meta"><span class="progress-text">${progress(card.progress)}</span><span class="mini-tag ${escape(card.risk || "none")}">${escape(card.risk ? riskLabel(card.risk) : "一般")}</span><span class="archive ${blocking ? "danger" : checks.length ? "warning" : "good"}">${archive}</span><span class="author-dot">${escape(card.authorship.createdBy?.name || "未识别")}</span><time>${date(card.authorship.createdBy?.at)}</time></div></article>`;
+  return `<article class="issue-list-row"><button class="issue-main" data-card-key="${escape(cardKey(card))}"><code>${escape(card.project.label)} / ${escape(card.id)}</code><strong>${escape(card.title)}</strong><small>${escape(card.excerpt)}</small></button><div class="issue-row-meta"><span class="progress-text">${progress(card.progress)}</span><span class="mini-tag ${escape(card.risk || "none")}">${escape(card.risk ? riskLabel(card.risk) : "一般")}</span><span class="archive ${blocking ? "danger" : checks.length ? "warning" : "good"}">${archive}</span><span class="owner-chip">负责人 · ${escape(assignee(card))}</span><span class="author-dot">创建 · ${escape(creator(card))}</span><time>${date(card.authorship.createdBy?.at)}</time></div></article>`;
 }
 
 function memory() {
@@ -267,22 +293,82 @@ function bindCardButtons() { document.querySelectorAll("[data-card-key]").forEac
 function showDetail(key) {
   const card = findCard(key);
   if (!card) return;
+  app.detailKey = key;
   $("#detail-content").innerHTML = card.type === "issue" ? issueDetail(card) : genericDetail(card, evidence(card));
-  $("#detail").showModal();
+  if (!$("#detail").open) $("#detail").showModal();
+  bindDetailActions(card);
 }
 
 function issueDetail(card) {
   const detail = card.detail;
   return `<p class="eyebrow">${escape(card.project.label)} / ${escape(card.id)} · ${escape(statusLabel(card.status))}</p><h2>${escape(card.title)}</h2><p class="source">${escape(card.project.path)} / ${escape(card.sourcePath)}</p>
-  <dl class="meta-grid"><dt>创建于</dt><dd>${person(card.authorship.createdBy)}</dd><dt>最近更新</dt><dd>${person(card.authorship.updatedBy)}${card.authorship.hasLocalChanges ? " · 本地尚有未提交修改" : ""}</dd><dt>进度</dt><dd>${progress(card.progress)}</dd><dt>关联</dt><dd>${card.links.length ? card.links.map(escape).join("、") : "无"}</dd></dl>
+  <dl class="meta-grid"><dt>创建于</dt><dd>${person(card.authorship.createdBy)}</dd><dt>创建者</dt><dd>${escape(creator(card))}</dd><dt>负责人</dt><dd>${escape(assignee(card))}</dd><dt>最近更新</dt><dd>${person(card.authorship.updatedBy)}${card.authorship.hasLocalChanges ? " · 本地尚有未提交修改" : ""}</dd><dt>进度</dt><dd>${progress(card.progress)}</dd><dt>关联</dt><dd>${card.links.length ? card.links.map(escape).join("、") : "无"}</dd></dl>
+  ${collaborationEditor(card)}
   ${actionSection("要做什么", detail.scope, "issue 未单列构建范围；请从原始任务补充。")}
   ${actionSection("验收进度", detail.acceptance, "没有可量化的验收 checklist。")}
   ${workSection(detail.workDone)}
   ${actionSection("当前阻塞", detail.blockers, card.status === "blocked" ? "状态为 blocked，但尚未记录具体原因。" : "没有发现显式阻塞。")}
   ${archiveSection(detail.archiveChecks)}
+  ${skillHandoff(detail.lifecycle)}
   <section class="next-actions"><h3>推荐后续如何进行</h3><ol>${detail.recommendations.map((item) => `<li>${escape(item)}</li>`).join("")}</ol></section>
+  ${activitySection(card.collaboration?.activities || [])}
   ${evidenceSection(detail.evidence)}
   <p class="detail-note">“归档前检查”只是基于记录的提示，不能替代 <code>archive.mjs --dry-run</code> 的实际结果。</p>`;
+}
+
+function collaborationEditor(card) {
+  const options = Object.entries(STATUSES).filter(([value]) => ["draft", "backlog", "todo", "active", "proposed", "in_progress", "in_review", "blocked", "completed", "archived", "closed"].includes(value)).map(([value, label]) => `<option value="${value}" ${card.status === value ? "selected" : ""}>${escape(label)} · ${escape(value)}</option>`).join("");
+  return `<section class="collaboration-editor"><header><div><p class="eyebrow">COLLABORATION</p><h3>协作管理</h3><p>修改直接写回项目中的 Issue Markdown，并追加协作动态。</p></div><span class="local-write">仅本机</span></header><form id="issue-update-form"><div class="editor-grid"><label>负责人<input name="assignee" value="${escape(assignee(card))}" maxlength="120" required></label><label>任务状态<select name="status">${options}</select></label></div><label class="comment-field">追加评论<textarea name="comment" rows="3" maxlength="4000" placeholder="记录决策、交接说明或需要谁处理的阻塞…"></textarea></label><div class="editor-actions"><button type="submit" class="save-issue" ${app.detailSaving ? "disabled" : ""}>${app.detailSaving ? "保存中…" : "保存协作更新"}</button><span id="issue-update-message" role="status">创建者保持不变；默认负责人是创建者。</span></div></form></section>`;
+}
+
+function skillHandoff(lifecycle) {
+  if (!lifecycle) return "";
+  return `<section class="skill-handoff"><p class="eyebrow">LOCTEK 下一步</p><h3>${escape(lifecycle.label)} <span>${escape(lifecycle.skill)}</span></h3><p>${escape(lifecycle.reason)}</p><div><code>${escape(lifecycle.prompt)}</code><button type="button" class="copy-skill-prompt" data-skill-prompt="${escape(lifecycle.prompt)}">复制给 Codex</button></div></section>`;
+}
+
+function activitySection(activities) {
+  return `<section class="detail-section activity-section"><h3>协作动态</h3>${activities.length ? `<ol class="activity-list">${activities.map((item) => `<li><div><time>${date(item.at, true)}</time><strong>${escape(item.actor)}</strong><span>${escape(item.kind)}</span></div>${item.content ? `<p>${escape(item.content)}</p>` : ""}</li>`).join("")}</ol>` : `<p class="empty">还没有协作动态；首次修改负责人、状态或追加评论后会记录在这里。</p>`}</section>`;
+}
+
+function bindDetailActions(card) {
+  const form = $("#issue-update-form");
+  if (form) form.addEventListener("submit", (event) => saveIssue(event, card));
+  $(".copy-skill-prompt")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    try {
+      await navigator.clipboard.writeText(button.dataset.skillPrompt || "");
+      button.textContent = "已复制";
+      setTimeout(() => { button.textContent = "复制给 Codex"; }, 1500);
+    } catch {
+      button.textContent = "请手动复制";
+    }
+  });
+}
+
+async function saveIssue(event, card) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const message = $("#issue-update-message");
+  app.detailSaving = true;
+  if (message) message.textContent = "正在写入项目 Markdown…";
+  try {
+    const payload = { assignee: form.get("assignee"), status: form.get("status") };
+    const comment = String(form.get("comment") || "").trim();
+    if (comment) payload.comment = comment;
+    const response = await fetch(api(`/api/projects/${encodeURIComponent(card.project.id)}/issues/${encodeURIComponent(card.id)}`), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "保存协作更新失败。")
+    app.portfolio = result.portfolio;
+    app.detailSaving = false;
+    renderFilters();
+    render();
+    showDetail(cardKey(card));
+  } catch (error) {
+    app.detailSaving = false;
+    if (message) message.textContent = error.message;
+    const button = event.currentTarget.querySelector("button[type=submit]");
+    if (button) { button.disabled = false; button.textContent = "保存协作更新"; }
+  }
 }
 
 function genericDetail(card, evidenceItems) {
@@ -321,8 +407,72 @@ async function addProject(event) {
   }
 }
 
+function renderInlineMarkdown(markdown) {
+  return escape(markdown)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+
+function storyMarkdown(markdown) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+  let quote = [];
+  let code = [];
+  let inCode = false;
+  const flushParagraph = () => { if (paragraph.length) blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`); paragraph = []; };
+  const flushList = () => { if (list.length) blocks.push(`<ul>${list.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`); list = []; };
+  const flushQuote = () => { if (quote.length) blocks.push(`<blockquote>${renderInlineMarkdown(quote.join(" "))}</blockquote>`); quote = []; };
+  const flushCode = () => { if (code.length) blocks.push(`<pre><code>${escape(code.join("\n"))}</code></pre>`); code = []; };
+  for (const line of lines) {
+    if (/^```/.test(line.trim())) { if (inCode) flushCode(); else { flushParagraph(); flushList(); flushQuote(); } inCode = !inCode; continue; }
+    if (inCode) { code.push(line); continue; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const item = line.match(/^\s*[-*+]\s+(.+)$/);
+    const quoted = line.match(/^>\s?(.*)$/);
+    if (heading) { flushParagraph(); flushList(); flushQuote(); blocks.push(`<h${heading[1].length}>${renderInlineMarkdown(heading[2])}</h${heading[1].length}>`); continue; }
+    if (item) { flushParagraph(); flushQuote(); list.push(item[1]); continue; }
+    if (quoted) { flushParagraph(); flushList(); quote.push(quoted[1]); continue; }
+    if (!line.trim()) { flushParagraph(); flushList(); flushQuote(); continue; }
+    flushList(); flushQuote(); paragraph.push(line.trim());
+  }
+  flushParagraph(); flushList(); flushQuote(); if (inCode) flushCode();
+  return blocks.join("") || "<p>尚未生成项目故事。</p>";
+}
+
+async function openStory() {
+  const dialog = $("#story-dialog");
+  const content = $("#story-content");
+  const source = storyUrl();
+  $("#story-source-link").href = source;
+  $("#story-title").textContent = app.projectId === "all" ? "项目故事" : `${$("#project-select").selectedOptions[0]?.textContent?.split(" · ")[0] || "当前项目"} · 项目故事`;
+  $("#story-meta").textContent = "正在从本机 .changes、OpenSpec 与 Git 记录生成预览…";
+  content.innerHTML = `<p class="story-loading">正在生成项目故事…</p>`;
+  if (!dialog.open) dialog.showModal();
+  try {
+    const response = await fetch(source, { cache: "no-store" });
+    const markdown = await response.text();
+    if (!response.ok) throw new Error(markdown || "项目故事生成失败。");
+    content.innerHTML = storyMarkdown(markdown);
+    $("#story-meta").textContent = "源记录生成的预览；“待补证”表示缺少关联证据，并不代表失败。";
+  } catch (error) {
+    content.innerHTML = `<p class="story-error">${escape(error.message)}</p>`;
+    $("#story-meta").textContent = "项目故事暂时无法生成。";
+  }
+}
+
+async function refreshBoard() {
+  try {
+    await load({ force: true });
+  } catch (error) {
+    $("#view").innerHTML = `<p class="error">${escape(error.message)}</p>`;
+  }
+}
+
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => { app.tab = button.dataset.tab; render(); }));
-$("#narrative-link").href = api("/api/narrative");
+$("#narrative-link").addEventListener("click", openStory);
 $("#project-select").addEventListener("change", (event) => {
   app.projectId = event.target.value;
   renderFilters();
@@ -331,10 +481,11 @@ $("#project-select").addEventListener("change", (event) => {
 $("#status-filter").addEventListener("change", (event) => { app.filters.status = event.target.value; render(); });
 $("#risk-filter").addEventListener("change", (event) => { app.filters.risk = event.target.value; render(); });
 $("#search").addEventListener("input", (event) => { app.filters.query = event.target.value.trim().toLowerCase(); render(); });
-$("#refresh").addEventListener("click", load);
+$("#refresh").addEventListener("click", refreshBoard);
 $("#add-project").addEventListener("click", () => $("#project-dialog").showModal());
 $("#project-form").addEventListener("submit", addProject);
 $("#close-detail").addEventListener("click", () => $("#detail").close());
+$("#close-story").addEventListener("click", () => $("#story-dialog").close());
 $("#close-project-dialog").addEventListener("click", () => $("#project-dialog").close());
 $("#view").addEventListener("click", (event) => {
   const projectRow = event.target.closest("[data-project-id]");

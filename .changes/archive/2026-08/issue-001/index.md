@@ -1,6 +1,6 @@
 # Loctek Archive
 
-Archived at: 2026-08-17T01:27:49.418Z
+Archived at: 2026-08-17T02:21:27.125Z
 
 ## Criteria
 
@@ -10,8 +10,8 @@ Archived at: 2026-08-17T01:27:49.418Z
 
 ## Files
 
-- .changes/issues/issue-001-重构参考图任务控制台视觉与视图.md -> .changes/archive/2026-08/issue-001/issues/issue-001-重构参考图任务控制台视觉与视图.md
-- .changes/work-reports/issue-001-2026-08-17.md -> .changes/archive/2026-08/issue-001/work-reports/issue-001-2026-08-17.md
+- .changes/issues/issue-001-修复项目故事预览与刷新交互.md -> .changes/archive/2026-08/issue-001/issues/issue-001-修复项目故事预览与刷新交互.md
+- .changes/work-reports/issue-001-2026-08-17.md -> .changes/archive/2026-08/issue-001/work-reports/issue-001-2026-08-17-2.md
 
 ## Note
 

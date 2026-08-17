@@ -2,13 +2,16 @@
 
 Loctek Specboard is a local-first project board and project-story generator for
 Loctek `.changes/` and OpenSpec. Source Markdown remains the system of record;
-Specboard only scans, links and renders it.
+Specboard scans, links, renders and performs narrowly scoped local write-back;
+it never creates a task database.
 
 It gives all registered local projects three connected views:
 
 - **Board** — issues, discussions, plans, decisions and OpenSpec changes;
 - **Evidence** — work reports, tests, intents, merges and Git authorship;
 - **Project story** — a shareable, progressively detailed Markdown narrative.
+- **Collaboration** — Issue owner, state and comments stored back in the
+  source Markdown as an append-only activity log.
 
 ## Quick start
 
@@ -124,3 +127,7 @@ Specboard understands existing Loctek folders without migration:
   `openspec/specs/`.
 
 See [docs/data-model.md](docs/data-model.md) for the card and evidence model.
+For the Issue ownership, state and comment protocol, see
+[docs/task-protocol.md](docs/task-protocol.md). For reusable architecture,
+playbook, prompt and case-study assets, see
+[docs/knowledge-assets.md](docs/knowledge-assets.md).

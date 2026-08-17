@@ -25,6 +25,7 @@ const EVIDENCE_DIRECTORIES = new Map([
 
 const ACTIVE_STATUSES = new Set(["draft", "backlog", "todo", "active", "proposed", "in_progress", "in_review", "blocked"]);
 const DONE_STATUSES = new Set(["done", "completed", "archived", "closed", "accepted"]);
+export const ISSUE_STATUSES = new Set([...ACTIVE_STATUSES, ...DONE_STATUSES]);
 const PROJECT_SCAN_TIMEOUT_MS = 8_000;
 const scannerWorkerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "scan-worker.mjs");
 
@@ -163,6 +164,47 @@ function issueDetailFromBody(body) {
   };
 }
 
+export function collaborationFromIssue(metadata, body, authorship = {}) {
+  const createdBy = textMetadata(metadata.created_by) || authorship.createdBy?.name || "未识别";
+  const assignee = textMetadata(metadata.assignee) || createdBy || "未分配";
+  const reviewers = normaliseArray(metadata.reviewers).map((value) => String(value).trim()).filter(Boolean);
+  return { createdBy, assignee, reviewers, activities: parseActivities(section(body, "协作动态")) };
+}
+
+export function parseActivities(markdown) {
+  if (!markdown) return [];
+  return [...markdown.matchAll(/^\s*-\s+(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)\s*[·｜|]\s*([^·｜|]+?)\s*[·｜|]\s*([^\n]+)\n?([\s\S]*?)(?=^\s*-\s+\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?\s*[·｜|]|\s*$)/gm)]
+    .map((match) => ({ at: match[1].replace(" ", "T"), actor: match[2].trim(), kind: match[3].trim(), content: compactText(match[4], 800) }))
+    .filter((item) => item.actor && item.kind);
+}
+
+function textMetadata(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function lifecycleRecommendation(card, evidence) {
+  const workEvidence = evidence.some((item) => ["work-report", "merge-report", "pull-request"].includes(item.type));
+  const testEvidence = evidence.some((item) => item.type === "test-report");
+  const todo = card.detail?.todo?.length || 0;
+  const done = DONE_STATUSES.has(card.status);
+  if (["draft", "backlog", "todo", "proposed"].includes(card.status)) {
+    return { skill: "loctek-issue", label: "明确和拆分 Issue", reason: "任务仍处在待梳理阶段，先补齐范围、验收与阻塞边界。", prompt: `请使用 loctek-issue 完善 ${card.id}：${card.title}，将它拆成可独立验证的最小闭环。` };
+  }
+  if (card.status === "blocked") {
+    return { skill: "loctek-work", label: "排查并记录阻塞", reason: "先在 work report 记录复现、假设、责任边界和解除条件。", prompt: `请使用 loctek-work 跟进 ${card.id} 的阻塞，补充根因、解除条件和下一步。` };
+  }
+  if (["active", "in_progress"].includes(card.status)) {
+    return { skill: "loctek-work", label: "执行并更新工作记录", reason: workEvidence ? "已有执行记录，继续按验收标准推进。" : "尚未发现 work report，先建立执行记录以保留实现意图。", prompt: `请使用 loctek-work 根据 ${card.id} 实现或排查，并持续更新 work report。` };
+  }
+  if (card.status === "in_review" || (done && (todo > 0 || !testEvidence))) {
+    return { skill: "loctek-test", label: "验证完成情况", reason: testEvidence ? "已有测试证据，核对验收与回归范围。" : "任务需要测试/验证证据，不能只依据状态判定完成。", prompt: `请使用 loctek-test 验证 ${card.id}，覆盖未完成验收项和回归风险。` };
+  }
+  if (done && todo === 0 && testEvidence) {
+    return { skill: "loctek-archive", label: "执行归档预检", reason: "状态、验收和测试证据基本齐全；仍必须先 dry-run。", prompt: `请使用 loctek-archive 对 ${card.id} 执行归档 dry-run，并确认只匹配本任务记录。` };
+  }
+  return { skill: "loctek-work", label: "补充执行证据", reason: "先补充 work report 或明确当前实际状态，再决定测试或归档。", prompt: `请使用 loctek-work 补充 ${card.id} 的当前执行记录和未完成项。` };
+}
+
 function archiveAssessment(card, evidence) {
   const detail = card.detail;
   const testEvidence = evidence.filter((item) => item.type === "test-report");
@@ -289,6 +331,7 @@ async function cardFromFile(projectPath, absolutePath, type, authorshipIndex) {
       : `${type}:${sourcePath}`;
   const links = [...new Set([...normaliseArray(metadata.links).map((value) => String(value).toUpperCase()), ...extractReferences(raw)])]
     .filter((link) => link !== sourceId);
+  const authorship = authorshipIndex.get(sourcePath) || { createdBy: null, updatedBy: null, hasLocalChanges: false };
   return {
     id: sourceId,
     type,
@@ -300,10 +343,11 @@ async function cardFromFile(projectPath, absolutePath, type, authorshipIndex) {
     excerpt: cardExcerpt(type, body),
     progress,
     detail: type === "issue" ? issueDetailFromBody(body) : null,
+    collaboration: type === "issue" ? collaborationFromIssue(metadata, body, authorship) : null,
     links,
     sourcePath,
     sourceBody: body,
-    authorship: authorshipIndex.get(sourcePath) || { createdBy: null, updatedBy: null, hasLocalChanges: false },
+    authorship,
   };
 }
 
@@ -400,7 +444,7 @@ export async function scanProject(projectPath) {
     card.evidenceIds = evidenceByLink[card.id] || [];
     if (card.type === "issue") {
       const linkedEvidence = card.evidenceIds.map((id) => evidence.find((item) => item.id === id)).filter(Boolean);
-      card.detail = { ...card.detail, ...archiveAssessment(card, linkedEvidence) };
+      card.detail = { ...card.detail, ...archiveAssessment(card, linkedEvidence), lifecycle: lifecycleRecommendation(card, linkedEvidence) };
     }
   }
   const activeIssues = cards.filter((card) => card.type === "issue" && ACTIVE_STATUSES.has(card.status));
@@ -474,6 +518,118 @@ export async function scanProjects(projects) {
     },
     scans: results,
   };
+}
+
+export async function updateIssueRecord(projectPath, issueId, changes = {}) {
+  const resolvedProjectPath = path.resolve(projectPath);
+  const normalizedId = String(issueId || "").trim().toUpperCase();
+  if (!/^ISSUE-[A-Z0-9_.-]+$/.test(normalizedId)) throw new Error("Issue ID 格式无效。");
+  const target = await findIssueFile(resolvedProjectPath, normalizedId);
+  if (!target) throw new Error(`未找到可编辑的活跃 Issue：${normalizedId}`);
+
+  const requested = normalizeIssueChanges(changes);
+  if (!Object.keys(requested).length) throw new Error("请至少提供负责人、状态或评论之一。");
+  const raw = await fs.readFile(target, "utf8");
+  const { metadata, body } = parseFrontmatter(raw);
+  const author = await configuredAuthor(resolvedProjectPath);
+  const sourcePath = path.relative(resolvedProjectPath, target);
+  const authorship = (await gitAuthorshipIndex(resolvedProjectPath)).get(sourcePath) || { createdBy: null };
+  const collaboration = collaborationFromIssue(metadata, body, authorship);
+  const missingCreatedBy = !textMetadata(metadata.created_by);
+  const missingAssignee = !textMetadata(metadata.assignee);
+  if (missingCreatedBy) metadata.created_by = collaboration.createdBy === "未识别" ? author : collaboration.createdBy;
+  if (missingAssignee) metadata.assignee = metadata.created_by;
+  const actions = [];
+
+  if (requested.assignee && requested.assignee !== collaboration.assignee) {
+    metadata.assignee = requested.assignee;
+    actions.push({ kind: "指派", content: `负责人：${collaboration.assignee} → ${requested.assignee}` });
+  }
+  if (requested.status && requested.status !== deriveStatus(metadata, "issue", body)) {
+    const before = deriveStatus(metadata, "issue", body);
+    metadata.status = requested.status;
+    actions.push({ kind: "状态更新", content: `状态：${before} → ${requested.status}` });
+  }
+  if (requested.comment) actions.push({ kind: "评论", content: requested.comment });
+  if (!actions.length && !missingCreatedBy && !missingAssignee) return { changed: false, issueId: normalizedId, sourcePath: path.relative(resolvedProjectPath, target), actions: [] };
+
+  const updates = {};
+  if (missingCreatedBy) updates.created_by = metadata.created_by;
+  if (missingAssignee || requested.assignee) updates.assignee = metadata.assignee;
+  if (requested.status) updates.status = metadata.status;
+  const sourceWithMetadata = upsertFrontmatter(raw, updates);
+  const { body: sourceBody } = parseFrontmatter(sourceWithMetadata);
+  const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const updatedBody = actions.length ? appendActivities(sourceBody, actions, { at: timestamp, actor: author }) : sourceBody;
+  const originalBodyStart = raw.length - body.length;
+  const next = actions.length
+    ? `${sourceWithMetadata.slice(0, sourceWithMetadata.length - sourceBody.length)}${updatedBody}`
+    : `${sourceWithMetadata.slice(0, sourceWithMetadata.length - sourceBody.length)}${raw.slice(originalBodyStart)}`;
+  await fs.writeFile(target, next, "utf8");
+  return { changed: true, issueId: normalizedId, sourcePath: path.relative(resolvedProjectPath, target), actions };
+}
+
+async function findIssueFile(projectPath, issueId) {
+  const issueDirectory = path.join(projectPath, ".changes", "issues");
+  for (const candidate of await walkMarkdown(issueDirectory)) {
+    const raw = await fs.readFile(candidate, "utf8");
+    const { metadata } = parseFrontmatter(raw);
+    if (String(metadata.id || "").trim().toUpperCase() === issueId) return candidate;
+  }
+  return null;
+}
+
+function normalizeIssueChanges(changes) {
+  const result = {};
+  if (changes.assignee !== undefined) {
+    const assignee = String(changes.assignee || "").replace(/\s+/g, " ").trim();
+    if (!assignee) throw new Error("负责人不能为空。");
+    if (assignee.length > 120 || /[\r\n]/.test(assignee)) throw new Error("负责人格式无效。");
+    result.assignee = assignee;
+  }
+  if (changes.status !== undefined) {
+    const status = String(changes.status || "").trim().toLowerCase();
+    if (!ISSUE_STATUSES.has(status)) throw new Error("状态不在 Loctek Issue 协议允许的范围内。");
+    result.status = status;
+  }
+  if (changes.comment !== undefined) {
+    const comment = String(changes.comment || "").trim();
+    if (!comment) throw new Error("评论不能为空。");
+    if (comment.length > 4_000) throw new Error("评论最多 4000 个字符。");
+    result.comment = comment;
+  }
+  return result;
+}
+
+function upsertFrontmatter(raw, updates) {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) throw new Error("Issue 缺少可编辑的 frontmatter。");
+  let frontmatter = match[1];
+  for (const [key, value] of Object.entries(updates)) {
+    const line = new RegExp(`^${escapeRegex(key)}:.*$`, "m");
+    const replacement = `${key}: ${yamlScalar(value)}`;
+    frontmatter = line.test(frontmatter) ? frontmatter.replace(line, replacement) : `${frontmatter}\n${replacement}`;
+  }
+  const newline = match[0].includes("\r\n") ? "\r\n" : "\n";
+  return `---${newline}${frontmatter}${newline}---${newline}${raw.slice(match[0].length)}`;
+}
+
+function yamlScalar(value) {
+  const text = String(value ?? "");
+  return /^[A-Za-z0-9_.-]+$/.test(text) ? text : JSON.stringify(text);
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function appendActivities(body, actions, context) {
+  const header = "## 协作动态";
+  const entries = actions.map((action) => `- ${context.at} · ${context.actor} · ${action.kind}\n  ${String(action.content).replace(/\n/g, "\n  ")}`).join("\n\n");
+  const lines = body.replace(/^\s+/, "");
+  const heading = new RegExp(`^${header}$`, "m");
+  if (heading.test(lines)) return `${lines.replace(/\s+$/, "")}\n\n${entries}\n`;
+  return `${lines.replace(/\s+$/, "")}\n\n${header}\n\n${entries}\n`;
 }
 
 async function scanProjectInWorker(projectPath, label) {
@@ -630,8 +786,7 @@ function slugify(title) {
 
 async function configuredAuthor(projectPath) {
   const name = await git(projectPath, ["config", "user.name"]);
-  const email = await git(projectPath, ["config", "user.email"]);
-  return [name?.stdout?.trim(), email?.stdout?.trim()].filter(Boolean).join(" <>") || "未配置 Git 作者";
+  return name?.stdout?.trim() || "未配置 Git 作者";
 }
 
 export async function captureRecord(projectPath, options) {

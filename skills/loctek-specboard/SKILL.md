@@ -6,7 +6,7 @@ description: 管理 Loctek Specboard 的项目记忆。用户提到把 AI 讨论
 # Loctek Specboard
 
 Specboard 将 Loctek `.changes/`、可选的 `openspec/` 与 Git 记录组织成可追溯的项目记忆。
-源 Markdown 和 Git 历史始终是事实源；Specboard 只扫描、生成索引和创建受控的讨论/计划记录，不建立第二套不透明的任务事实。
+源 Markdown 和 Git 历史始终是事实源；Specboard 只扫描、生成索引、创建受控的讨论/计划记录，以及对已登记 Issue 做受限协作写入，不建立第二套不透明的任务事实。
 
 ## 什么时候沉淀讨论
 
@@ -108,6 +108,21 @@ node "<plugin-root>/src/server.mjs" --project <project-path>
 
 默认地址是 `http://127.0.0.1:47931`。页面本地读取源文件；点击刷新会重新扫描。不要把该本地服务暴露到网络，除非用户明确要求并完成访问控制设计。
 
+### 5. 协作负责人、状态与评论
+
+用户要在看板分配或转交任务、更新状态、补充评论时，使用看板 Issue 详情中的“协作管理”。它只会写入已登记项目下已扫描到的 `.changes/issues/*.md`，并追加 `## 协作动态`；不要把这些内容写到外部 tracker 或额外数据库。
+
+新 Issue 的协议应包含：
+
+```yaml
+created_by: "创建者"
+assignee: "创建者"
+```
+
+创建者默认就是负责人。`created_by` 是原始归属，不能在转交时覆盖；更新只改 `assignee` 并记录动态。旧 Issue 缺少字段时，Specboard 以 Git 创建者回退，并在首次受控编辑时补齐。状态并不构成实现或测试完成的证据。
+
+看板给出的 Loctek Skill 仅是下一步建议：待梳理用 `loctek-issue`，执行/排查用 `loctek-work`，验证用 `loctek-test`，证据齐全后的归档预检用 `loctek-archive`。不要尝试通过网页自动运行 Skill；让用户在 Codex 会话中明确触发，以保留执行上下文和人工判断。
+
 ## 与 Loctek 生命周期的配合
 
 - `loctek-issue`：执行任务的权威入口；Issue 卡由 `.changes/issues/` 自动产生。
@@ -115,6 +130,7 @@ node "<plugin-root>/src/server.mjs" --project <project-path>
 - `loctek-test` / `loctek-commit` / `loctek-merge`：测试、提交、合并证据进入同一条 issue 链路。
 - `loctek-archive`：归档完成后不默认显示为活跃任务；项目故事只将它作为历史上下文。
 - Session note 仍保存关键即时决策；需要持续检索和看板展示的方案/计划，用 discussion/plan 记录承载。
+- 对可迁移的架构、playbook、提示词和复盘，先用项目内纯 Markdown 资产记录适用条件、取舍和证据；不要未经确认就创建独立知识库或把一次性对话当团队标准。
 
 ## 成功标准
 
