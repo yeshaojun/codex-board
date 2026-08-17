@@ -1,0 +1,15 @@
+---
+description: Loctek Spec project workflow
+alwaysApply: true
+---
+
+# Loctek Spec
+
+This project uses `.changes` records to preserve intent across issue planning, work, test, commit, and merge.
+
+- Read active records under `.changes/issues`, `.changes/work-reports`, `.changes/intents`, `.changes/test-reports`, `.changes/merge-reports`, `.changes/pr`, and `.changes/session-notes`.
+- Do not read `.changes/archive` during normal work unless the user asks for historical context.
+- Record important user decisions and implementation reasoning into `.changes/session-notes/YYYY-MM-DD-<branch-or-topic>.md` when no work report is being updated.
+- Keep session notes short. Do not store secrets or full chat transcripts.
+- Before resolving merge conflicts, preserve both sides' intent and document the decision in a merge report.
+- After completed work, dry-run archive with `node tools/loctek/archive.mjs . --issue ISSUE-001 --dry-run` or `--branch <branch> --dry-run`; archive only when the match is clearly safe.

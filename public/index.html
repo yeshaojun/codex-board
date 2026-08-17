@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Loctek Specboard</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="project-switcher">
+          <label for="project-select"><span class="sr-only">切换项目</span><select id="project-select" aria-label="切换项目"><option>正在读取项目…</option></select></label>
+          <span class="chevron" aria-hidden="true">⌄</span>
+        </div>
+        <div class="topbar-actions">
+          <p class="selection-meta" id="project-selection-meta">项目组合加载中…</p>
+          <button class="quiet-button" id="refresh" title="重新扫描源文件">↻ <span>刷新</span></button>
+          <a class="quiet-button story-link" id="narrative-link" href="/api/narrative" target="_blank">项目故事 <span aria-hidden="true">↗</span></a>
+          <button class="add-project" id="add-project" title="登记本机项目" aria-label="登记本机项目">＋</button>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="Specboard 主视图">
+        <button class="tab is-active" data-tab="dashboard">仪表盘</button>
+        <button class="tab" data-tab="board">议题看板 <span id="issue-count"></span></button>
+        <button class="tab" data-tab="list">列表视图</button>
+        <button class="tab" data-tab="memory">项目记忆</button>
+      </nav>
+
+      <section class="controls" id="controls" aria-label="筛选任务">
+        <label class="search"><span class="sr-only">查找</span><input id="search" placeholder="搜索任务、方案或决策…"></label>
+        <label><span class="sr-only">状态</span><select id="status-filter"><option value="all">全部状态</option></select></label>
+        <label><span class="sr-only">风险</span><select id="risk-filter"><option value="all">全部风险</option></select></label>
+      </section>
+
+      <section id="view" aria-live="polite"></section>
+    </main>
+    <dialog id="detail"><article><button class="close" id="close-detail" aria-label="关闭">×</button><div id="detail-content"></div></article></dialog>
+    <dialog id="project-dialog"><article><button class="close" id="close-project-dialog" aria-label="关闭">×</button><p class="eyebrow">Project registry</p><h2>登记项目</h2><p class="dialog-copy">添加含 <code>.changes/</code> 或 <code>openspec/</code> 的本机项目。看板只扫描源文件，不创建任务数据库。</p><form id="project-form"><label>项目名称 <input name="label" placeholder="例如：Loctek AI OS"></label><label>本机绝对路径 <input name="path" placeholder="/Users/andy/study/loctek-ai-os" required></label><button type="submit">加入项目组合</button></form><p class="form-error" id="project-error"></p></article></dialog>
+    <script src="/app.js" crossorigin="anonymous"></script>
+  </body>
+</html>

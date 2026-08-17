@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.andy.loctek-specboard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/andy/plugins/loctek-specboard/src/server.mjs</string>
+    <string>--port</string>
+    <string>47932</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/andy/plugins/loctek-specboard</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/andy/Library/Logs/loctek-specboard.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andy/Library/Logs/loctek-specboard-error.log</string>
+</dict>
+</plist>

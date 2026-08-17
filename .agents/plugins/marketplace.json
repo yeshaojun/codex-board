@@ -1,0 +1,20 @@
+{
+  "name": "loctek-local",
+  "interface": {
+    "displayName": "Loctek Local"
+  },
+  "plugins": [
+    {
+      "name": "loctek-specboard",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

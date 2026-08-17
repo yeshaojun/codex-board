@@ -1,0 +1,21 @@
+{
+  "name": "loctek-specboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first project narrative and task board for Loctek .changes and OpenSpec.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "scan": "node src/cli.mjs scan",
+    "narrative": "node src/cli.mjs narrative",
+    "capture": "node src/cli.mjs capture",
+    "service:install": "node scripts/install-local-service.mjs",
+    "service:remove": "node scripts/uninstall-local-service.mjs",
+    "codex": "node scripts/codex-sidecar.mjs --launch --watch --open",
+    "codex:open": "node scripts/codex-sidecar.mjs --launch --open",
+    "test": "node --test tests/**/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,21 @@
+name: Loctek Intent Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  intent-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate PR intent fields
+        run: node tools/loctek/validate-intent.mjs --pr-body "$PR_BODY"
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+      - name: Collect Loctek context
+        run: node tools/loctek/collect-context.mjs --ci
+

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Loctek commit intent check
+
+MSG_FILE="$1"
+
+if [ -z "$MSG_FILE" ] || [ ! -f "$MSG_FILE" ]; then
+  echo "Loctek: commit message file not found"
+  exit 1
+fi
+
+missing=""
+for section in "Why:" "What:" "Preserve:" "Validation:" "Risks:"; do
+  if ! grep -q "$section" "$MSG_FILE"; then
+    missing="$missing $section"
+  fi
+done
+
+if [ -n "$missing" ]; then
+  echo "Loctek: commit message missing sections:$missing"
+  echo 'Use $loctek-commit or fill the .gitmessage template.'
+  exit 1
+fi
+
+exit 0

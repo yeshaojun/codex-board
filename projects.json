@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "id": "loctek-ai-cowork",
+      "label": "Loctek AI Cowork",
+      "path": "/Users/andy/study/loctek-ai-cowork"
+    },
+    {
+      "id": "demo",
+      "label": "demo",
+      "path": "/Users/andy/study/demo"
+    },
+    {
+      "id": "test-cluade",
+      "label": "test_cluade",
+      "path": "/Users/andy/work/test_cluade"
+    },
+    {
+      "id": "经验沉淀",
+      "label": "经验沉淀",
+      "path": "/Users/andy/Documents/经验沉淀"
+    },
+    {
+      "id": "openmetadata",
+      "label": "openmetadata",
+      "path": "/Users/andy/Documents/openmetadata"
+    }
+  ]
+}

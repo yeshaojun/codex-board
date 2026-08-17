@@ -1,0 +1,118 @@
+version: 1
+project: loctek
+language: zh-CN
+governance:
+  mode: lightweight
+  ask_only_when:
+    - low_confidence_issue_match
+    - dangerous_file
+    - permission_problem
+    - unresolved_conflict
+    - destructive_operation
+  strictest_phase: merge
+issue:
+  kinds:
+    - feature
+    - bug
+  bug_mode:
+    avoid_module_optimization: true
+    required_sections:
+      - 现象
+      - 期望行为
+      - 复现信息
+      - 已知事实
+      - 初始假设
+      - 排查计划
+      - 修复边界
+      - 验收标准
+      - 必须保留的行为
+      - 回归测试计划
+intent:
+  required_sections:
+    - 为什么改
+    - 改了什么
+    - 涉及文件
+    - 必须保留的行为
+    - 验证方式
+    - 风险点
+  read_session_notes: true
+session_notes:
+  enabled: true
+  directory: .changes/session-notes
+  write_when:
+    - user_key_decision
+    - scope_change
+    - rejected_approach
+    - implementation_reasoning
+    - merge_preserve_behavior
+  do_not_store:
+    - secrets
+    - credentials
+    - full_raw_transcripts
+archive:
+  enabled: true
+  directory: .changes/archive
+  default_read: false
+  auto_after_merge_when_safe: true
+  auto_after_test_when_issue_complete: false
+  dry_run_first: true
+commit:
+  default_mode: commit
+  allow_prepare: true
+  allow_multiple_issues: true
+  require_multi_issue_reason: false
+  never_push: true
+  use_explicit_git_add: true
+  blocked_patterns:
+    - .env
+    - .env.*
+    - "*.pem"
+    - "*.key"
+    - "*.p12"
+    - "*.pfx"
+    - "*.log"
+    - node_modules/**
+work:
+  require_report: true
+  required_sections:
+    - Issue
+    - Understanding
+    - Investigation
+    - Implementation
+    - Acceptance Criteria
+    - Tests
+    - Files Changed
+    - Behavior Preserved
+    - Follow-ups
+merge:
+  require_report_on_conflict: true
+  inspect_semantic_conflicts: true
+  archive_after_success_when_safe: true
+test:
+  require_report: true
+  ordinary_changes_allow_not_run_reason: true
+  high_risk_requires_validation: true
+  suggest_archive_when_issue_complete: true
+  commands:
+    javascript:
+      - npm test
+      - npm run lint
+      - npm run typecheck
+      - npm run build
+    python:
+      - pytest
+    go:
+      - go test ./...
+risk_files:
+  - package.json
+  - pnpm-lock.yaml
+  - package-lock.json
+  - yarn.lock
+  - .github/**
+  - db/**
+  - migrations/**
+  - src/routes/**
+  - src/permissions/**
+  - src/auth/**
+  - src/payment/**
+max_pr_changed_lines: 500

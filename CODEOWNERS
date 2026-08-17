@@ -1,0 +1,13 @@
+# Loctek starter ownership map. Replace @team aliases with your real owners.
+
+.github/ @platform-team
+tools/loctek/ @platform-team
+.changes/config.yml @platform-team
+
+# High-risk examples. Uncomment and adapt.
+# db/ @backend-team
+# migrations/ @backend-team
+# src/auth/ @security-team
+# src/permissions/ @security-team
+# src/payment/ @payments-team
+
